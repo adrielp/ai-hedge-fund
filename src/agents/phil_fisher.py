@@ -5,6 +5,7 @@ from src.tools.api import (
     search_line_items,
     get_insider_trades,
     get_company_news,
+    is_crypto_ticker,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
@@ -42,6 +43,16 @@ def phil_fisher_agent(state: AgentState):
     fisher_analysis = {}
 
     for ticker in tickers:
+        # Phil Fisher focuses on businesses with sustainable competitive advantages and growth - skip crypto
+        if is_crypto_ticker(ticker):
+            fisher_analysis[ticker] = {
+                "signal": "neutral",
+                "confidence": 0,
+                "reasoning": "Cryptocurrencies lack the fundamental business characteristics needed for Phil Fisher's growth investing approach. Without products, R&D investments, management quality, or competitive moats, traditional growth analysis cannot be applied.",
+                "asset_type": "crypto"
+            }
+            continue
+            
         progress.update_status("phil_fisher_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
 
@@ -149,6 +160,7 @@ def phil_fisher_agent(state: AgentState):
             "signal": fisher_output.signal,
             "confidence": fisher_output.confidence,
             "reasoning": fisher_output.reasoning,
+            "asset_type": "stock"
         }
 
         progress.update_status("phil_fisher_agent", ticker, "Done", analysis=fisher_output.reasoning)

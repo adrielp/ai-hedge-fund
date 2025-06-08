@@ -16,6 +16,7 @@ from src.tools.api import (
     get_financial_metrics,
     get_market_cap,
     search_line_items,
+    is_crypto_ticker,
 )
 
 def valuation_analyst_agent(state: AgentState):
@@ -28,6 +29,20 @@ def valuation_analyst_agent(state: AgentState):
     valuation_analysis: dict[str, dict] = {}
 
     for ticker in tickers:
+        # Skip valuation analysis for cryptocurrencies (no financial metrics)
+        if is_crypto_ticker(ticker):
+            progress.update_status("valuation_analyst_agent", ticker, "Skipping crypto (no valuation metrics)")
+            valuation_analysis[ticker] = {
+                "signal": "neutral",
+                "confidence": 0,
+                "reasoning": {
+                    "message": "Traditional valuation analysis not applicable to cryptocurrencies"
+                },
+                "asset_type": "crypto"
+            }
+            progress.update_status("valuation_analyst_agent", ticker, "Done")
+            continue
+            
         progress.update_status("valuation_analyst_agent", ticker, "Fetching financial data")
 
         # --- Historical financial metrics (pull 8 latest TTM snapshots for medians) ---
@@ -144,6 +159,7 @@ def valuation_analyst_agent(state: AgentState):
             "signal": signal,
             "confidence": confidence,
             "reasoning": reasoning,
+            "asset_type": "stock"
         }
         progress.update_status("valuation_analyst_agent", ticker, "Done", analysis=json.dumps(reasoning, indent=4))
 

@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 import json
 from typing_extensions import Literal
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, is_crypto_ticker
 from src.utils.llm import call_llm
 from src.utils.progress import progress
 
@@ -26,6 +26,18 @@ def warren_buffett_agent(state: AgentState):
     buffett_analysis = {}
 
     for ticker in tickers:
+        # Warren Buffett famously avoids crypto - skip analysis
+        if is_crypto_ticker(ticker):
+            progress.update_status("warren_buffett_agent", ticker, "Skipping crypto (outside circle of competence)")
+            buffett_analysis[ticker] = {
+                "signal": "neutral",
+                "confidence": 0,
+                "reasoning": "Cryptocurrencies are outside Warren Buffett's circle of competence. He has consistently avoided them, stating they produce nothing and are speculative assets.",
+                "asset_type": "crypto"
+            }
+            progress.update_status("warren_buffett_agent", ticker, "Done")
+            continue
+            
         progress.update_status("warren_buffett_agent", ticker, "Fetching financial metrics")
         # Fetch required data - request more periods for better trend analysis
         metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=10)
@@ -131,6 +143,7 @@ def warren_buffett_agent(state: AgentState):
             "signal": buffett_output.signal,
             "confidence": buffett_output.confidence,
             "reasoning": buffett_output.reasoning,
+            "asset_type": "stock"
         }
 
         progress.update_status("warren_buffett_agent", ticker, "Done", analysis=buffett_output.reasoning)

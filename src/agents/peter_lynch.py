@@ -6,6 +6,7 @@ from src.tools.api import (
     get_insider_trades,
     get_company_news,
     get_prices,
+    is_crypto_ticker,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
@@ -49,6 +50,18 @@ def peter_lynch_agent(state: AgentState):
     lynch_analysis = {}
 
     for ticker in tickers:
+        # Peter Lynch crypto stance
+        if is_crypto_ticker(ticker):
+            progress.update_status("peter_lynch_agent", ticker, "Evaluating crypto position")
+            lynch_analysis[ticker] = {
+                "signal": "neutral",
+                "confidence": 0,
+                "reasoning": "Cryptocurrencies don't fit Peter Lynch's 'invest in what you know' philosophy. He prefers companies with understandable products and earnings.",
+                "asset_type": "crypto"
+            }
+            progress.update_status("peter_lynch_agent", ticker, "Done")
+            continue
+            
         progress.update_status("peter_lynch_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
 
@@ -146,6 +159,7 @@ def peter_lynch_agent(state: AgentState):
             "signal": lynch_output.signal,
             "confidence": lynch_output.confidence,
             "reasoning": lynch_output.reasoning,
+            "asset_type": "stock"
         }
 
         progress.update_status("peter_lynch_agent", ticker, "Done", analysis=lynch_output.reasoning)

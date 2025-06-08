@@ -15,6 +15,7 @@ from src.tools.api import (
     get_insider_trades,
     get_market_cap,
     search_line_items,
+    is_crypto_ticker,
 )
 from src.utils.llm import call_llm
 from src.utils.progress import progress
@@ -56,6 +57,18 @@ def michael_burry_agent(state: AgentState):  # noqa: C901  (complexity is fine h
     burry_analysis: dict[str, dict] = {}
 
     for ticker in tickers:
+        # Michael Burry crypto stance
+        if is_crypto_ticker(ticker):
+            progress.update_status("michael_burry_agent", ticker, "Evaluating crypto position")
+            burry_analysis[ticker] = {
+                "signal": "bearish",
+                "confidence": 70,
+                "reasoning": "Michael Burry has warned about crypto speculation and prefers assets with fundamental value. He focuses on contrarian value plays.",
+                "asset_type": "crypto"
+            }
+            progress.update_status("michael_burry_agent", ticker, "Done")
+            continue
+            
         # ------------------------------------------------------------------
         # Fetch raw data
         # ------------------------------------------------------------------
@@ -150,6 +163,7 @@ def michael_burry_agent(state: AgentState):  # noqa: C901  (complexity is fine h
             "signal": burry_output.signal,
             "confidence": burry_output.confidence,
             "reasoning": burry_output.reasoning,
+            "asset_type": "stock"
         }
 
         progress.update_status("michael_burry_agent", ticker, "Done", analysis=burry_output.reasoning)

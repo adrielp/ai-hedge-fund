@@ -3,7 +3,7 @@ from src.graph.state import AgentState, show_agent_reasoning
 from src.utils.progress import progress
 import json
 
-from src.tools.api import get_financial_metrics
+from src.tools.api import get_financial_metrics, is_crypto_ticker, get_crypto_prices, prices_to_df
 
 
 ##### Fundamental Agent #####
@@ -17,6 +17,85 @@ def fundamentals_analyst_agent(state: AgentState):
     fundamental_analysis = {}
 
     for ticker in tickers:
+        # Check if this is a cryptocurrency
+        if is_crypto_ticker(ticker):
+            progress.update_status("fundamentals_analyst_agent", ticker, "Analyzing crypto fundamentals")
+            
+            # For crypto, we'll analyze price action and volatility as fundamentals
+            prices = get_crypto_prices(
+                ticker=ticker,
+                start_date=data["start_date"],
+                end_date=end_date,
+            )
+            
+            if not prices:
+                progress.update_status("fundamentals_analyst_agent", ticker, "Failed: No crypto price data found")
+                continue
+                
+            prices_df = prices_to_df(prices)
+            
+            # Calculate crypto-specific metrics
+            returns = prices_df["close"].pct_change()
+            volatility = returns.std() * (252 ** 0.5)  # Annualized volatility
+            avg_volume = prices_df["volume"].mean()
+            price_change_30d = (prices_df["close"].iloc[-1] / prices_df["close"].iloc[-min(30, len(prices_df)):].iloc[0] - 1) if len(prices_df) > 1 else 0
+            
+            # Simple crypto fundamental analysis based on momentum and volume
+            signals = []
+            reasoning = {}
+            
+            # 1. Momentum Analysis
+            momentum_signal = "bullish" if price_change_30d > 0.1 else "bearish" if price_change_30d < -0.1 else "neutral"
+            signals.append(momentum_signal)
+            reasoning["momentum_signal"] = {
+                "signal": momentum_signal,
+                "details": f"30-day price change: {price_change_30d:.2%}"
+            }
+            
+            # 2. Volume Analysis
+            recent_volume = prices_df["volume"].iloc[-5:].mean() if len(prices_df) >= 5 else avg_volume
+            volume_ratio = recent_volume / avg_volume if avg_volume > 0 else 1
+            volume_signal = "bullish" if volume_ratio > 1.5 else "bearish" if volume_ratio < 0.5 else "neutral"
+            signals.append(volume_signal)
+            reasoning["volume_signal"] = {
+                "signal": volume_signal,
+                "details": f"Recent volume ratio: {volume_ratio:.2f}"
+            }
+            
+            # 3. Volatility Analysis
+            vol_signal = "bearish" if volatility > 1.0 else "bullish" if volatility < 0.5 else "neutral"
+            signals.append(vol_signal)
+            reasoning["volatility_signal"] = {
+                "signal": vol_signal,
+                "details": f"Annualized volatility: {volatility:.2%}"
+            }
+            
+            # Determine overall signal
+            bullish_signals = signals.count("bullish")
+            bearish_signals = signals.count("bearish")
+            
+            if bullish_signals > bearish_signals:
+                overall_signal = "bullish"
+            elif bearish_signals > bullish_signals:
+                overall_signal = "bearish"
+            else:
+                overall_signal = "neutral"
+            
+            # Calculate confidence level
+            total_signals = len(signals)
+            confidence = round(max(bullish_signals, bearish_signals) / total_signals, 2) * 100
+            
+            fundamental_analysis[ticker] = {
+                "signal": overall_signal,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "asset_type": "crypto"
+            }
+            
+            progress.update_status("fundamentals_analyst_agent", ticker, "Done", analysis=json.dumps(reasoning, indent=4))
+            continue
+            
+        # Regular stock analysis
         progress.update_status("fundamentals_analyst_agent", ticker, "Fetching financial metrics")
 
         # Get the financial metrics
@@ -136,6 +215,7 @@ def fundamentals_analyst_agent(state: AgentState):
             "signal": overall_signal,
             "confidence": confidence,
             "reasoning": reasoning,
+            "asset_type": "stock"
         }
 
         progress.update_status("fundamentals_analyst_agent", ticker, "Done", analysis=json.dumps(reasoning, indent=4))

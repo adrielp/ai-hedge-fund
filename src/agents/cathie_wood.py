@@ -1,5 +1,5 @@
 from src.graph.state import AgentState, show_agent_reasoning
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, is_crypto_ticker, get_crypto_prices, prices_to_df
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
@@ -31,6 +31,68 @@ def cathie_wood_agent(state: AgentState):
     cw_analysis = {}
 
     for ticker in tickers:
+        # Cathie Wood is bullish on crypto - analyze with crypto-specific metrics
+        if is_crypto_ticker(ticker):
+            progress.update_status("cathie_wood_agent", ticker, "Analyzing crypto innovation potential")
+            
+            # Get crypto price data
+            prices = get_crypto_prices(
+                ticker=ticker,
+                start_date=data["start_date"],
+                end_date=end_date,
+            )
+            
+            if not prices:
+                progress.update_status("cathie_wood_agent", ticker, "Failed: No crypto price data found")
+                cw_analysis[ticker] = {
+                    "signal": "neutral",
+                    "confidence": 0,
+                    "reasoning": "Unable to fetch cryptocurrency price data",
+                    "asset_type": "crypto"
+                }
+                continue
+                
+            prices_df = prices_to_df(prices)
+            
+            # Calculate crypto metrics aligned with Cathie Wood's principles
+            returns = prices_df["close"].pct_change()
+            price_change_90d = (prices_df["close"].iloc[-1] / prices_df["close"].iloc[-min(90, len(prices_df)):].iloc[0] - 1) if len(prices_df) > 1 else 0
+            volatility = returns.std() * (365 ** 0.5)  # Crypto trades 365 days
+            
+            # Cathie Wood focuses on innovation and disruption
+            signal = "neutral"
+            confidence = 50
+            
+            # Check if it's a major crypto (BTC, ETH) - she's been particularly bullish on these
+            ticker_upper = ticker.upper()
+            if "BTC" in ticker_upper or "BITCOIN" in ticker_upper:
+                signal = "bullish"
+                confidence = 80
+                reasoning = f"Bitcoin represents a disruptive store of value and potential global currency. 90-day return: {price_change_90d:.2%}. Cathie Wood has consistently advocated for Bitcoin as digital gold."
+            elif "ETH" in ticker_upper or "ETHEREUM" in ticker_upper:
+                signal = "bullish"
+                confidence = 75
+                reasoning = f"Ethereum enables DeFi and smart contracts - key innovation platforms. 90-day return: {price_change_90d:.2%}. Aligns with ARK's focus on disruptive technologies."
+            else:
+                # For other cryptos, base on momentum and innovation potential
+                if price_change_90d > 0.5:  # 50% gain in 90 days
+                    signal = "bullish"
+                    confidence = 60
+                elif price_change_90d < -0.3:  # 30% loss in 90 days
+                    signal = "bearish"
+                    confidence = 60
+                reasoning = f"Cryptocurrency showing {'strong' if price_change_90d > 0 else 'weak'} momentum. 90-day return: {price_change_90d:.2%}. Volatility: {volatility:.2%}."
+            
+            cw_analysis[ticker] = {
+                "signal": signal,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "asset_type": "crypto"
+            }
+            
+            progress.update_status("cathie_wood_agent", ticker, "Done", analysis=reasoning)
+            continue
+            
         progress.update_status("cathie_wood_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
 
@@ -89,7 +151,7 @@ def cathie_wood_agent(state: AgentState):
             state=state,
         )
 
-        cw_analysis[ticker] = {"signal": cw_output.signal, "confidence": cw_output.confidence, "reasoning": cw_output.reasoning}
+        cw_analysis[ticker] = {"signal": cw_output.signal, "confidence": cw_output.confidence, "reasoning": cw_output.reasoning, "asset_type": "stock"}
 
         progress.update_status("cathie_wood_agent", ticker, "Done", analysis=cw_output.reasoning)
 

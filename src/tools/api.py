@@ -294,3 +294,96 @@ def prices_to_df(prices: list[Price]) -> pd.DataFrame:
 def get_price_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
     prices = get_prices(ticker, start_date, end_date)
     return prices_to_df(prices)
+
+
+def get_crypto_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
+    """Fetch cryptocurrency price data from cache or API."""
+    # Create a cache key that includes all parameters to ensure exact matches
+    cache_key = f"crypto_{ticker}_{start_date}_{end_date}"
+    
+    # Check cache first - simple exact match
+    if cached_data := _cache.get_prices(cache_key):
+        return [Price(**price) for price in cached_data]
+
+    # If not in cache, fetch from API
+    headers = {}
+    if api_key := os.environ.get("FINANCIAL_DATASETS_API_KEY"):
+        headers["X-API-KEY"] = api_key
+
+    url = f"https://api.financialdatasets.ai/crypto/prices?ticker={ticker}&interval=day&interval_multiplier=1&start_date={start_date}&end_date={end_date}"
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        raise Exception(f"Error fetching crypto data: {ticker} - {response.status_code} - {response.text}")
+
+    # Parse response with Pydantic model
+    price_response = PriceResponse(**response.json())
+    prices = price_response.prices
+
+    if not prices:
+        return []
+
+    # Cache the results using the comprehensive cache key
+    _cache.set_prices(cache_key, [p.model_dump() for p in prices])
+    return prices
+
+
+def get_crypto_snapshot(ticker: str) -> Price | None:
+    """Fetch real-time cryptocurrency price snapshot from API."""
+    headers = {}
+    if api_key := os.environ.get("FINANCIAL_DATASETS_API_KEY"):
+        headers["X-API-KEY"] = api_key
+
+    url = f"https://api.financialdatasets.ai/crypto/prices/snapshot?ticker={ticker}"
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        raise Exception(f"Error fetching crypto snapshot: {ticker} - {response.status_code} - {response.text}")
+
+    # Parse response with Pydantic model
+    data = response.json()
+    if "price" in data:
+        return Price(**data["price"])
+    return None
+
+
+def get_crypto_price_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """Get cryptocurrency price data as a DataFrame."""
+    prices = get_crypto_prices(ticker, start_date, end_date)
+    return prices_to_df(prices)
+
+
+def is_crypto_ticker(ticker: str) -> bool:
+    """Determine if a ticker is a cryptocurrency based on common patterns."""
+    # Common crypto ticker patterns
+    crypto_suffixes = ["-USD", "-USDT", "-USDC", "-EUR", "-BTC", "-ETH"]
+    crypto_tickers = ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "DOT", "MATIC", 
+                      "AVAX", "LINK", "UNI", "ATOM", "LTC", "BCH", "XLM", "ALGO",
+                      "VET", "SAND", "MANA", "AXS", "AAVE", "COMP", "SNX", "MKR"]
+    
+    # Check if ticker matches common crypto patterns
+    ticker_upper = ticker.upper()
+    
+    # Check for explicit crypto suffixes
+    for suffix in crypto_suffixes:
+        if ticker_upper.endswith(suffix):
+            return True
+    
+    # Check if it's a known crypto ticker
+    if ticker_upper in crypto_tickers:
+        return True
+    
+    # Check if the ticker contains common crypto base symbols with pairs
+    base_cryptos = ["BTC", "ETH", "BNB", "XRP", "ADA", "SOL", "DOGE", "DOT", 
+                    "MATIC", "AVAX", "LINK", "UNI", "ATOM", "LTC", "BCH"]
+    for crypto in base_cryptos:
+        if ticker_upper.startswith(crypto) and len(ticker_upper) > len(crypto):
+            return True
+    
+    return False
+
+
+def get_universal_price_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """Get price data for either stocks or cryptocurrencies based on ticker type."""
+    if is_crypto_ticker(ticker):
+        return get_crypto_price_data(ticker, start_date, end_date)
+    else:
+        return get_price_data(ticker, start_date, end_date)

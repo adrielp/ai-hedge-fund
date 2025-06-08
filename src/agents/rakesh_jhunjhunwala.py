@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 import json
 from typing_extensions import Literal
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, is_crypto_ticker
 from src.utils.llm import call_llm
 from src.utils.progress import progress
 
@@ -24,6 +24,15 @@ def rakesh_jhunjhunwala_agent(state: AgentState):
     jhunjhunwala_analysis = {}
 
     for ticker in tickers:
+        # Rakesh Jhunjhunwala focused on businesses with earnings growth and quality management - skip crypto
+        if is_crypto_ticker(ticker):
+            jhunjhunwala_analysis[ticker] = {
+                "signal": "neutral",
+                "confidence": 0,
+                "reasoning": "Cryptocurrencies lack the fundamental characteristics that drive my investment philosophy - earnings growth, quality management, and sustainable competitive advantages. I prefer businesses with clear financial metrics and growth trajectories.",
+                "asset_type": "crypto"
+            }
+            continue
 
         # Core Data
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Fetching financial metrics")
@@ -140,7 +149,10 @@ def rakesh_jhunjhunwala_agent(state: AgentState):
             state=state,
         )
 
-        jhunjhunwala_analysis[ticker] = jhunjhunwala_output.model_dump()
+        jhunjhunwala_analysis[ticker] = {
+            **jhunjhunwala_output.model_dump(),
+            "asset_type": "stock"
+        }
 
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Done", analysis=jhunjhunwala_output.reasoning)
 

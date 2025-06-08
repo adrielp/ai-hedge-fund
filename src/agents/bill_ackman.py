@@ -1,6 +1,6 @@
 from langchain_openai import ChatOpenAI
 from src.graph.state import AgentState, show_agent_reasoning
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, is_crypto_ticker
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
@@ -30,6 +30,16 @@ def bill_ackman_agent(state: AgentState):
     ackman_analysis = {}
     
     for ticker in tickers:
+        # Bill Ackman focuses on businesses with cash flows and fundamentals - skip crypto
+        if is_crypto_ticker(ticker):
+            ackman_analysis[ticker] = {
+                "signal": "neutral",
+                "confidence": 0,
+                "reasoning": "I prefer businesses with cash flows, competitive advantages, and operational leverage opportunities. Cryptocurrencies lack the fundamental characteristics needed for my investment approach.",
+                "asset_type": "crypto"
+            }
+            continue
+            
         progress.update_status("bill_ackman_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
         
@@ -106,7 +116,8 @@ def bill_ackman_agent(state: AgentState):
         ackman_analysis[ticker] = {
             "signal": ackman_output.signal,
             "confidence": ackman_output.confidence,
-            "reasoning": ackman_output.reasoning
+            "reasoning": ackman_output.reasoning,
+            "asset_type": "stock"
         }
         
         progress.update_status("bill_ackman_agent", ticker, "Done", analysis=ackman_output.reasoning)

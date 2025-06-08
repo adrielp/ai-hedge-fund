@@ -1,5 +1,5 @@
 from src.graph.state import AgentState, show_agent_reasoning
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, get_insider_trades, get_company_news
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, get_insider_trades, get_company_news, is_crypto_ticker
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
@@ -27,6 +27,18 @@ def charlie_munger_agent(state: AgentState):
     munger_analysis = {}
     
     for ticker in tickers:
+        # Charlie Munger crypto stance - strongly opposed
+        if is_crypto_ticker(ticker):
+            progress.update_status("charlie_munger_agent", ticker, "Evaluating crypto position")
+            munger_analysis[ticker] = {
+                "signal": "bearish",
+                "confidence": 100,
+                "reasoning": "Charlie Munger has called Bitcoin 'rat poison squared' and strongly opposes cryptocurrency investments.",
+                "asset_type": "crypto"
+            }
+            progress.update_status("charlie_munger_agent", ticker, "Done")
+            continue
+            
         progress.update_status("charlie_munger_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=10)  # Munger looks at longer periods
         
@@ -130,7 +142,8 @@ def charlie_munger_agent(state: AgentState):
         munger_analysis[ticker] = {
             "signal": munger_output.signal,
             "confidence": munger_output.confidence,
-            "reasoning": munger_output.reasoning
+            "reasoning": munger_output.reasoning,
+            "asset_type": "stock"
         }
         
         progress.update_status("charlie_munger_agent", ticker, "Done", analysis=munger_output.reasoning)

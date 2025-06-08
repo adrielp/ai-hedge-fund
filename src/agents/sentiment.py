@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import json
 
-from src.tools.api import get_insider_trades, get_company_news
+from src.tools.api import get_insider_trades, get_company_news, is_crypto_ticker
 
 
 ##### Sentiment Agent #####
@@ -19,6 +19,18 @@ def sentiment_analyst_agent(state: AgentState):
     sentiment_analysis = {}
 
     for ticker in tickers:
+        # Skip sentiment analysis for cryptocurrencies (no insider trades or company news)
+        if is_crypto_ticker(ticker):
+            progress.update_status("sentiment_analyst_agent", ticker, "Skipping crypto (no sentiment data)")
+            sentiment_analysis[ticker] = {
+                "signal": "neutral",
+                "confidence": 0,
+                "reasoning": "Sentiment analysis not available for cryptocurrencies",
+                "asset_type": "crypto"
+            }
+            progress.update_status("sentiment_analyst_agent", ticker, "Done")
+            continue
+            
         progress.update_status("sentiment_analyst_agent", ticker, "Fetching insider trades")
 
         # Get the insider trades
@@ -77,6 +89,7 @@ def sentiment_analyst_agent(state: AgentState):
             "signal": overall_signal,
             "confidence": confidence,
             "reasoning": reasoning,
+            "asset_type": "stock"
         }
 
         progress.update_status("sentiment_analyst_agent", ticker, "Done", analysis=json.dumps(reasoning, indent=4))

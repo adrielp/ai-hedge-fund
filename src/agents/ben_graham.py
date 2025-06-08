@@ -1,5 +1,5 @@
 from src.graph.state import AgentState, show_agent_reasoning
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, is_crypto_ticker
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
@@ -32,6 +32,18 @@ def ben_graham_agent(state: AgentState):
     graham_analysis = {}
 
     for ticker in tickers:
+        # Ben Graham crypto stance - no intrinsic value
+        if is_crypto_ticker(ticker):
+            progress.update_status("ben_graham_agent", ticker, "Evaluating crypto position")
+            graham_analysis[ticker] = {
+                "signal": "bearish",
+                "confidence": 90,
+                "reasoning": "Cryptocurrencies have no intrinsic value or margin of safety. Ben Graham would avoid speculative assets without underlying business value.",
+                "asset_type": "crypto"
+            }
+            progress.update_status("ben_graham_agent", ticker, "Done")
+            continue
+            
         progress.update_status("ben_graham_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=10)
 
@@ -72,7 +84,7 @@ def ben_graham_agent(state: AgentState):
             state=state,
         )
 
-        graham_analysis[ticker] = {"signal": graham_output.signal, "confidence": graham_output.confidence, "reasoning": graham_output.reasoning}
+        graham_analysis[ticker] = {"signal": graham_output.signal, "confidence": graham_output.confidence, "reasoning": graham_output.reasoning, "asset_type": "stock"}
 
         progress.update_status("ben_graham_agent", ticker, "Done", analysis=graham_output.reasoning)
 

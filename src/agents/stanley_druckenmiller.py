@@ -6,6 +6,9 @@ from src.tools.api import (
     get_insider_trades,
     get_company_news,
     get_prices,
+    is_crypto_ticker,
+    get_crypto_prices,
+    prices_to_df,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
@@ -42,6 +45,71 @@ def stanley_druckenmiller_agent(state: AgentState):
     druck_analysis = {}
 
     for ticker in tickers:
+        # Stanley Druckenmiller has invested in Bitcoin
+        if is_crypto_ticker(ticker):
+            progress.update_status("stanley_druckenmiller_agent", ticker, "Analyzing crypto position")
+            
+            # Get crypto price data
+            prices = get_crypto_prices(
+                ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            
+            if not prices:
+                progress.update_status("stanley_druckenmiller_agent", ticker, "Failed: No crypto price data found")
+                druck_analysis[ticker] = {
+                    "signal": "neutral",
+                    "confidence": 0,
+                    "reasoning": "Unable to fetch cryptocurrency price data",
+                    "asset_type": "crypto"
+                }
+                continue
+                
+            prices_df = prices_to_df(prices)
+            
+            # Calculate momentum and trend metrics
+            returns = prices_df["close"].pct_change()
+            price_change_30d = (prices_df["close"].iloc[-1] / prices_df["close"].iloc[-min(30, len(prices_df)):].iloc[0] - 1) if len(prices_df) > 1 else 0
+            price_change_90d = (prices_df["close"].iloc[-1] / prices_df["close"].iloc[-min(90, len(prices_df)):].iloc[0] - 1) if len(prices_df) > 1 else 0
+            
+            # Druckenmiller focuses on asymmetric risk-reward and momentum
+            signal = "neutral"
+            confidence = 60
+            
+            ticker_upper = ticker.upper()
+            if "BTC" in ticker_upper or "BITCOIN" in ticker_upper:
+                # He's been bullish on Bitcoin as digital gold
+                if price_change_30d > 0.1:  # Strong momentum
+                    signal = "bullish"
+                    confidence = 70
+                elif price_change_30d < -0.2:  # Negative momentum
+                    signal = "bearish"
+                    confidence = 60
+                else:
+                    signal = "neutral"
+                    confidence = 50
+                reasoning = f"Bitcoin as store of value in currency debasement era. 30d: {price_change_30d:.2%}, 90d: {price_change_90d:.2%}. Momentum {'favors' if signal == 'bullish' else 'against' if signal == 'bearish' else 'neutral for'} position."
+            else:
+                # For other cryptos, focus on momentum
+                if price_change_30d > 0.3:  # 30%+ gain
+                    signal = "bullish"
+                    confidence = 60
+                elif price_change_30d < -0.2:  # 20%+ loss
+                    signal = "bearish"
+                    confidence = 60
+                reasoning = f"Crypto momentum play. 30d: {price_change_30d:.2%}, 90d: {price_change_90d:.2%}. Risk-reward {'favorable' if signal == 'bullish' else 'unfavorable' if signal == 'bearish' else 'unclear'}."
+            
+            druck_analysis[ticker] = {
+                "signal": signal,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "asset_type": "crypto"
+            }
+            
+            progress.update_status("stanley_druckenmiller_agent", ticker, "Done", analysis=reasoning)
+            continue
+            
         progress.update_status("stanley_druckenmiller_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
 
@@ -144,6 +212,7 @@ def stanley_druckenmiller_agent(state: AgentState):
             "signal": druck_output.signal,
             "confidence": druck_output.confidence,
             "reasoning": druck_output.reasoning,
+            "asset_type": "stock"
         }
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Done", analysis=druck_output.reasoning)

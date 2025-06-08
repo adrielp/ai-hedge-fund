@@ -12,6 +12,7 @@ from src.tools.api import (
     get_financial_metrics,
     get_market_cap,
     search_line_items,
+    is_crypto_ticker,
 )
 from src.utils.llm import call_llm
 from src.utils.progress import progress
@@ -40,6 +41,16 @@ def aswath_damodaran_agent(state: AgentState):
     damodaran_signals: dict[str, dict] = {}
 
     for ticker in tickers:
+        # Aswath Damodaran focuses on valuation models that require cash flows - skip crypto
+        if is_crypto_ticker(ticker):
+            damodaran_signals[ticker] = {
+                "signal": "neutral",
+                "confidence": 0,
+                "reasoning": "Cryptocurrencies lack the cash flows and fundamental characteristics needed for traditional valuation models. Without earnings, dividends, or book values, DCF and relative valuation approaches cannot be applied.",
+                "asset_type": "crypto"
+            }
+            continue
+            
         # ─── Fetch core data ────────────────────────────────────────────────────
         progress.update_status("aswath_damodaran_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="ttm", limit=5)
@@ -119,7 +130,10 @@ def aswath_damodaran_agent(state: AgentState):
             state=state,
         )
 
-        damodaran_signals[ticker] = damodaran_output.model_dump()
+        damodaran_signals[ticker] = {
+            **damodaran_output.model_dump(),
+            "asset_type": "stock"
+        }
 
         progress.update_status("aswath_damodaran_agent", ticker, "Done", analysis=damodaran_output.reasoning)
 
