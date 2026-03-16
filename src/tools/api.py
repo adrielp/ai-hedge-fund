@@ -60,11 +60,21 @@ def _make_api_request(url: str, headers: dict, method: str = "GET", json_data: d
         return response
 
 
+# Quote currencies that identify a crypto trading pair (e.g. BTC-USD, ETH-BTC)
+_CRYPTO_QUOTES = {"USD", "EUR", "GBP", "BTC", "ETH", "USDT", "USDC"}
+
+
+def _is_crypto_ticker(ticker: str) -> bool:
+    """Return True if ticker looks like a crypto pair (e.g. BTC-USD, ETH-BTC)."""
+    parts = ticker.split("-")
+    return len(parts) == 2 and parts[1].upper() in _CRYPTO_QUOTES
+
+
 def get_prices(ticker: str, start_date: str, end_date: str, api_key: str = None) -> list[Price]:
     """Fetch price data from cache or API."""
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{start_date}_{end_date}"
-    
+
     # Check cache first - simple exact match
     if cached_data := _cache.get_prices(cache_key):
         return [Price(**price) for price in cached_data]
@@ -75,15 +85,19 @@ def get_prices(ticker: str, start_date: str, end_date: str, api_key: str = None)
     if financial_api_key:
         headers["X-API-KEY"] = financial_api_key
 
-    url = f"https://api.financialdatasets.ai/prices/?ticker={ticker}&interval=day&interval_multiplier=1&start_date={start_date}&end_date={end_date}"
+    if _is_crypto_ticker(ticker):
+        url = f"https://api.financialdatasets.ai/crypto/prices/?ticker={ticker}&interval=day&interval_multiplier=1&start_date={start_date}&end_date={end_date}"
+    else:
+        url = f"https://api.financialdatasets.ai/prices/?ticker={ticker}&interval=day&interval_multiplier=1&start_date={start_date}&end_date={end_date}"
+
     response = _make_api_request(url, headers)
     if response.status_code != 200:
         return []
 
-    # Parse response with Pydantic model
+    # Parse response — crypto endpoint omits top-level ticker field
     try:
-        price_response = PriceResponse(**response.json())
-        prices = price_response.prices
+        data = response.json()
+        prices = [Price(**p) for p in data.get("prices", [])]
     except Exception as e:
         logger.warning("Failed to parse price response for %s: %s", ticker, e)
         return []
