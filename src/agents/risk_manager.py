@@ -7,6 +7,14 @@ import numpy as np
 import pandas as pd
 from src.utils.api_key import get_api_key_from_state
 
+def _annualization_days(ticker: str) -> int:
+    """Return trading days per year: 365 for crypto pairs, 252 for equities."""
+    parts = ticker.split("-")
+    if len(parts) == 2 and parts[1].upper() in {"USD", "EUR", "GBP", "BTC", "ETH", "USDT", "USDC"}:
+        return 365
+    return 252
+
+
 ##### Risk Management Agent #####
 def risk_management_agent(state: AgentState, agent_id: str = "risk_management_agent"):
     """Controls position sizing based on volatility-adjusted risk factors for multiple tickers."""
@@ -38,7 +46,7 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
             progress.update_status(agent_id, ticker, "Warning: No price data found")
             volatility_data[ticker] = {
                 "daily_volatility": 0.05,  # Default fallback volatility (5% daily)
-                "annualized_volatility": 0.05 * np.sqrt(252),
+                "annualized_volatility": 0.05 * np.sqrt(_annualization_days(ticker)),
                 "volatility_percentile": 100,  # Assume high risk if no data
                 "data_points": 0
             }
@@ -51,7 +59,7 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
             current_prices[ticker] = current_price
             
             # Calculate volatility metrics
-            volatility_metrics = calculate_volatility_metrics(prices_df)
+            volatility_metrics = calculate_volatility_metrics(prices_df, ticker=ticker)
             volatility_data[ticker] = volatility_metrics
 
             # Store returns for correlation analysis (use close-to-close returns)
@@ -69,7 +77,7 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
             current_prices[ticker] = 0
             volatility_data[ticker] = {
                 "daily_volatility": 0.05,
-                "annualized_volatility": 0.05 * np.sqrt(252),
+                "annualized_volatility": 0.05 * np.sqrt(_annualization_days(ticker)),
                 "volatility_percentile": 100,
                 "data_points": len(prices_df) if not prices_df.empty else 0
             }
@@ -219,33 +227,33 @@ def risk_management_agent(state: AgentState, agent_id: str = "risk_management_ag
     }
 
 
-def calculate_volatility_metrics(prices_df: pd.DataFrame, lookback_days: int = 60) -> dict:
+def calculate_volatility_metrics(prices_df: pd.DataFrame, lookback_days: int = 60, ticker: str = "") -> dict:
     """Calculate comprehensive volatility metrics from price data."""
     if len(prices_df) < 2:
         return {
             "daily_volatility": 0.05,
-            "annualized_volatility": 0.05 * np.sqrt(252),
+            "annualized_volatility": 0.05 * np.sqrt(_annualization_days(ticker)),
             "volatility_percentile": 100,
             "data_points": len(prices_df)
         }
-    
+
     # Calculate daily returns
     daily_returns = prices_df["close"].pct_change().dropna()
-    
+
     if len(daily_returns) < 2:
         return {
             "daily_volatility": 0.05,
-            "annualized_volatility": 0.05 * np.sqrt(252),
+            "annualized_volatility": 0.05 * np.sqrt(_annualization_days(ticker)),
             "volatility_percentile": 100,
             "data_points": len(daily_returns)
         }
-    
+
     # Use the most recent lookback_days for volatility calculation
     recent_returns = daily_returns.tail(min(lookback_days, len(daily_returns)))
-    
+
     # Calculate volatility metrics
     daily_vol = recent_returns.std()
-    annualized_vol = daily_vol * np.sqrt(252)  # Annualize assuming 252 trading days
+    annualized_vol = daily_vol * np.sqrt(_annualization_days(ticker))
     
     # Calculate percentile rank of recent volatility vs historical volatility
     if len(daily_returns) >= 30:  # Need sufficient history for percentile calculation

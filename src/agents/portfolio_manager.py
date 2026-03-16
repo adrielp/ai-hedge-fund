@@ -12,7 +12,7 @@ from src.utils.llm import call_llm
 
 class PortfolioDecision(BaseModel):
     action: Literal["buy", "sell", "short", "cover", "hold"]
-    quantity: int = Field(description="Number of shares to trade")
+    quantity: float = Field(description="Number of units to trade")
     confidence: int = Field(description="Confidence 0-100")
     reasoning: str = Field(description="Reasoning for the decision")
 
@@ -49,7 +49,7 @@ def portfolio_management_agent(state: AgentState, agent_id: str = "portfolio_man
 
         # Calculate maximum shares allowed based on position limit and price
         if current_prices[ticker] > 0:
-            max_shares[ticker] = int(position_limits[ticker] // current_prices[ticker])
+            max_shares[ticker] = round(position_limits[ticker] / current_prices[ticker], 8)
         else:
             max_shares[ticker] = 0
 
@@ -96,9 +96,9 @@ def portfolio_management_agent(state: AgentState, agent_id: str = "portfolio_man
 def compute_allowed_actions(
         tickers: list[str],
         current_prices: dict[str, float],
-        max_shares: dict[str, int],
+        max_shares: dict[str, float],
         portfolio: dict[str, float],
-) -> dict[str, dict[str, int]]:
+) -> dict[str, dict[str, float]]:
     """Compute allowed actions and max quantities for each ticker deterministically."""
     allowed = {}
     cash = float(portfolio.get("cash", 0.0))
@@ -115,7 +115,7 @@ def compute_allowed_actions(
         )
         long_shares = int(pos.get("long", 0) or 0)
         short_shares = int(pos.get("short", 0) or 0)
-        max_qty = int(max_shares.get(ticker, 0) or 0)
+        max_qty = float(max_shares.get(ticker, 0) or 0)
 
         # Start with zeros
         actions = {"buy": 0, "sell": 0, "short": 0, "cover": 0, "hold": 0}
@@ -124,7 +124,7 @@ def compute_allowed_actions(
         if long_shares > 0:
             actions["sell"] = long_shares
         if cash > 0 and price > 0:
-            max_buy_cash = int(cash // price)
+            max_buy_cash = round(cash / price, 8)
             max_buy = max(0, min(max_qty, max_buy_cash))
             if max_buy > 0:
                 actions["buy"] = max_buy
@@ -138,7 +138,7 @@ def compute_allowed_actions(
                 max_short = max_qty
             else:
                 available_margin = max(0.0, (equity / margin_requirement) - margin_used)
-                max_short_margin = int(available_margin // price)
+                max_short_margin = round(available_margin / price, 8)
                 max_short = max(0, min(max_qty, max_short_margin))
             if max_short > 0:
                 actions["short"] = max_short
@@ -178,7 +178,7 @@ def generate_trading_decision(
         tickers: list[str],
         signals_by_ticker: dict[str, dict],
         current_prices: dict[str, float],
-        max_shares: dict[str, int],
+        max_shares: dict[str, float],
         portfolio: dict[str, float],
         agent_id: str,
         state: AgentState,
@@ -225,7 +225,7 @@ def generate_trading_decision(
                 "Format:\n"
                 "{{\n"
                 '  "decisions": {{\n'
-                '    "TICKER": {{"action":"...","quantity":int,"confidence":int,"reasoning":"..."}}\n'
+                '    "TICKER": {{"action":"...","quantity":float,"confidence":int,"reasoning":"..."}}\n'
                 "  }}\n"
                 "}}"
             ),

@@ -31,6 +31,14 @@ def safe_float(value, default=0.0):
         return default
 
 
+def _annualization_days(ticker: str) -> int:
+    """Return trading days per year: 365 for crypto pairs, 252 for equities."""
+    parts = ticker.split("-")
+    if len(parts) == 2 and parts[1].upper() in {"USD", "EUR", "GBP", "BTC", "ETH", "USDT", "USDC"}:
+        return 365
+    return 252
+
+
 ##### Technical Analyst #####
 def technical_analyst_agent(state: AgentState, agent_id: str = "technical_analyst_agent"):
     """
@@ -77,7 +85,7 @@ def technical_analyst_agent(state: AgentState, agent_id: str = "technical_analys
         momentum_signals = calculate_momentum_signals(prices_df)
 
         progress.update_status(agent_id, ticker, "Analyzing volatility")
-        volatility_signals = calculate_volatility_signals(prices_df)
+        volatility_signals = calculate_volatility_signals(prices_df, ticker=ticker)
 
         progress.update_status(agent_id, ticker, "Statistical analysis")
         stat_arb_signals = calculate_stat_arb_signals(prices_df)
@@ -283,7 +291,7 @@ def calculate_momentum_signals(prices_df):
     }
 
 
-def calculate_volatility_signals(prices_df):
+def calculate_volatility_signals(prices_df, ticker: str = ""):
     """
     Volatility-based trading strategy
     """
@@ -291,7 +299,7 @@ def calculate_volatility_signals(prices_df):
     returns = prices_df["close"].pct_change()
 
     # Historical volatility
-    hist_vol = returns.rolling(21).std() * math.sqrt(252)
+    hist_vol = returns.rolling(21).std() * math.sqrt(_annualization_days(ticker))
 
     # Volatility regime detection
     vol_ma = hist_vol.rolling(63).mean()
