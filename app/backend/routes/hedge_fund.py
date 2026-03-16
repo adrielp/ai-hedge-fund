@@ -1,17 +1,28 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from typing import List, Optional
 import asyncio
+from datetime import datetime, timedelta
 
 from app.backend.database import get_db
-from app.backend.models.schemas import ErrorResponse, HedgeFundRequest, BacktestRequest, BacktestDayResult, BacktestPerformanceMetrics
+from app.backend.models.schemas import ErrorResponse, HedgeFundRequest, BacktestRequest, BacktestDayResult, BacktestPerformanceMetrics, GraphNode, GraphEdge
 from app.backend.models.events import StartEvent, ProgressUpdateEvent, ErrorEvent, CompleteEvent
-from app.backend.services.graph import create_graph, parse_hedge_fund_response, run_graph_async
+from app.backend.services.graph import create_graph, parse_hedge_fund_response, run_graph_async, run_graph
 from app.backend.services.portfolio import create_portfolio
 from app.backend.services.backtest_service import BacktestService
 from app.backend.services.api_key_service import ApiKeyService
 from src.utils.progress import progress
-from src.utils.analysts import get_agents_list
+from src.utils.analysts import get_agents_list, ANALYST_CONFIG
+
+
+class SimpleRunRequest(BaseModel):
+    tickers: List[str]
+    analysts: Optional[List[str]] = None  # None = all analysts
+    model_name: str = "gpt-4.1"
+    model_provider: str = "OpenAI"
+    initial_cash: float = 100000.0
 
 router = APIRouter(prefix="/hedge-fund")
 
@@ -349,4 +360,62 @@ async def get_agents():
         return {"agents": get_agents_list()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve agents: {str(e)}")
+
+
+@router.post(
+    path="/run/simple",
+    responses={
+        200: {"description": "Analysis results as JSON"},
+        400: {"model": ErrorResponse, "description": "Invalid request parameters"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+)
+async def run_simple(request_data: SimpleRunRequest, db: Session = Depends(get_db)):
+    """CronJob-friendly endpoint. Accepts tickers + analyst list and returns JSON results.
+    Builds the graph internally so callers don't need to supply React Flow graph structure."""
+    try:
+        analysts = request_data.analysts or list(ANALYST_CONFIG.keys())
+
+        invalid = [a for a in analysts if a not in ANALYST_CONFIG]
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Unknown analysts: {invalid}")
+
+        suffix = "00"
+        graph_nodes = [GraphNode(id=f"{a}_{suffix}") for a in analysts] + [GraphNode(id=f"portfolio_manager_{suffix}")]
+        graph_edges = [GraphEdge(id=f"e{i}", source=f"{a}_{suffix}", target=f"portfolio_manager_{suffix}") for i, a in enumerate(analysts)]
+
+        api_key_service = ApiKeyService(db)
+        api_keys = api_key_service.get_api_keys_dict()
+
+        portfolio = create_portfolio(request_data.initial_cash, 0.0, request_data.tickers, None)
+        graph = create_graph(graph_nodes=graph_nodes, graph_edges=graph_edges).compile()
+
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: run_graph(
+                graph=graph,
+                portfolio=portfolio,
+                tickers=request_data.tickers,
+                start_date=start_date,
+                end_date=end_date,
+                model_name=request_data.model_name,
+                model_provider=request_data.model_provider,
+            ),
+        )
+
+        if not result or not result.get("messages"):
+            raise HTTPException(status_code=500, detail="Graph execution returned no results")
+
+        return {
+            "decisions": parse_hedge_fund_response(result.get("messages", [])[-1].content),
+            "analyst_signals": result.get("data", {}).get("analyst_signals", {}),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 

@@ -6,7 +6,9 @@ from pathlib import Path
 
 # Get the backend directory path
 BACKEND_DIR = Path(__file__).parent.parent
-DATABASE_PATH = BACKEND_DIR / "hedge_fund.db"
+
+# Allow DATABASE_PATH to be overridden via env var so K8s can point it at a PVC mount.
+DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(BACKEND_DIR / "hedge_fund.db")))
 
 # Database configuration - use absolute path
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
